@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<launch>
+    <arg name="initial_x" default="0" />
+    <arg name="initial_y" default="0" />
+    <arg name="desired_x" default="0" />
+    <arg name="desired_y" default="0" />
+    <arg name="linear_vel" default="0.3" />
+    <arg name="angular_vel" default="0.4" />
+    <arg name="simulation" default="true" />
+    <param name="initial_x" value="$(arg initial_x)" />
+    <param name="initial_y" value="$(arg initial_y)" />
+    <param name="desired_x" value="$(arg desired_x)" />
+    <param name="desired_y" value="$(arg desired_y)" />
+    <param name="linear_vel" value="$(arg linear_vel)" />
+    <param name="angular_vel" value="$(arg angular_vel)" />
+    <param name="simulation" value="$(arg simulation)" />
+    <node pkg="bug_algorithms" type="follow_boundary" name="follow_boundary"/>
+    <node pkg="bug_algorithms" type="go_to_point" name="go_to_point"/>
+    <node pkg="bug_algorithms" type="bug2" name="bug2" output="screen" />
+</launch>

@@ -1,0 +1,411 @@
+#!/usr/bin/env python
+import time
+import  math
+import roslib; roslib.load_manifest('p3dx_mover')
+import rospy
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist
+from std_msgs.msg import Float32MultiArray
+from sensor_msgs.msg import LaserScan
+
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+estado = [0,0,0]
+
+mensaje = ""
+yaw = ""
+laser = []
+flag = 1
+girarIzq = 2
+
+def callback(data):
+    global estado
+    global yaw
+    estado = data.pose.pose.position
+    state = data.pose.pose
+    roll, pitch, yaw = euler_from_quaternion([state.orientation.x, state.orientation.y, state.orientation.z, state.orientation.w])
+    #rospy.loginfo("Nuevo")
+
+def callbackLaser(data):
+    global laser
+    laser = data.ranges
+
+
+def listener():
+    #rospy.init_node('nodo_listener')
+    rospy.Subscriber("odom", Odometry, callback)
+    rospy.Subscriber("p3dx/laser/scan", LaserScan, callbackLaser)
+       # spin() simply keeps python from exiting until this node is stopped
+    #rospy.spin()
+
+def odometria(ri,rd,estado,s,h=3):
+    r = 0.4
+    vl = (ri+rd)/2
+    w = (1/r) * (rd-ri)/h
+    #inx = vl * math.cos(math.radians(estado[2]))
+    #iny = vl * math.sin(math.radians(estado[2]))
+
+    inx = vl * math.cos(estado[2])
+    iny = vl * math.sin(estado[2])
+    estado[0] += inx * s
+    estado[1] += iny * s
+    estado[2] = (estado[2] + w * s) % (2 * math.pi)
+
+    print estado
+
+    return estado
+
+def normCyclic(val, min, max):
+   if (val >= min):
+     return min + (val - min) % (max - min)
+   else:
+     return max - (min - val) % (max - min)
+
+def normDeg360(val):
+    return normCyclic(val, 0, 360)
+
+
+def surroundObstacule(destino):
+    libre = 0
+    girar = 0
+    isRounding = 0
+    isReturning = 0
+    isLeft = 1
+    #Distancia minima de tolerancia para detectar un obstaculo
+    distMin = 0.5
+    tol = 0.04
+    #Distancia del punto mas cercano
+    dn = 0
+    dnAux = 0
+    #Punto donde se detecta el obstaculo
+    pInit = []
+    #Punto mas cercano al destino
+    pNear = []
+    pInitNear = []
+    #Numero de iteraciones
+    it = 0
+
+    #Laser derecho
+    if(laser[3] < distMin-0.15):
+        isRounding = 1
+        isLeft = 0
+        band = 0
+        pInit = estado
+        pNear = estado
+        dnAux = 99999
+        twist.linear.x = 0.0
+        twist.angular.z = 0.0
+        pub.publish(twist)
+
+    #Laser izquierdo
+    if(laser[4] < distMin-0.15):
+        isRounding = 1
+        isLeft = 1
+        band = 0
+        pInit = estado
+        pNear = estado
+        dnAux = 99999
+        twist.linear.x = 0.0
+        twist.angular.z = 0.0
+        pub.publish(twist)
+
+    while (isRounding == 1):
+        if isLeft:
+            while band == 0 and (laser[7] > distMin or laser[6] > distMin+0.05):
+                print "Left 1 - L7: %f L6: %f L5: %f L4: %f" % (laser[7],laser[6],laser[5],laser[4])
+                twist.linear.x = 0.0
+                twist.angular.z = -0.1
+                pub.publish(twist)
+
+            band = 1
+            band2 = 1
+            while laser[7] > distMin and (laser[6] > distMin and laser[5] > distMin):
+                print "Left 2 - L7: %f L6: %f L5: %f L4: %f" % (laser[7],laser[6],laser[5],laser[4])
+                twist.linear.x = 0.0
+                twist.angular.z = 0.1
+                pub.publish(twist)
+                band2 = 0
+            while band2 == 1 and (laser[6] < distMin or laser[5] < distMin):
+                print "Left 3 - L7: %f L6: %f L5: %f L4: %f" % (laser[7],laser[6],laser[5],laser[4])
+                twist.linear.x = 0.0
+                twist.angular.z = -0.1
+                pub.publish(twist)
+        else:
+            while band == 0 and (laser[0] > distMin or laser[1] > distMin+0.05):
+                print "Right 1 - L3: %f L2: %f L1: %f L0: %f" % (laser[3],laser[2],laser[1],laser[0])
+                twist.linear.x = 0.0
+                twist.angular.z = 0.1
+                pub.publish(twist)
+
+            band = 1
+            band2 = 1
+            while laser[0] > distMin and (laser[1] > distMin and laser[2] > distMin):
+                print "Right 2 - L3: %f L2: %f L1: %f L0: %f" % (laser[3],laser[2],laser[1],laser[0])
+                twist.linear.x = 0.0
+                twist.angular.z = -0.1
+                pub.publish(twist)
+                band2 = 0
+            while band2 == 1 and (laser[1] < distMin or laser[2] < distMin):
+                print "Right 3 - L3: %f L2: %f L1: %f L0: %f" % (laser[3],laser[2],laser[1],laser[0])
+                twist.linear.x = 0.0
+                twist.angular.z = 0.1
+                pub.publish(twist)
+        
+        twist.linear.x = 0.1
+        twist.angular.z = 0.0
+        pub.publish(twist)
+
+        dn = distance2Points(estado,destino)
+        if dn < dnAux:
+            dnAux = dn
+            pNear = estado
+
+        if it > 100000 and (abs(estado.x - pInit.x) < tol) and (abs(estado.y - pInit.y) < tol):
+            pInitNear = pNear
+            isReturning = 1
+            print "Returning"
+            
+        if  isReturning and (abs(estado.x - pNear.x) < tol) and (abs(estado.y - pNear.y) < tol):
+            isRounding = 0
+            isReturning = 0
+            #Retornar el valor de 1 para indicar que se debe rotar para alinearse con el punto de destino
+            return 1
+        it+=1
+    #Retornar 0 en caso de que no se necesite hacer algo
+    print "Round 0"
+    return 0
+
+
+def avoidObstacule():
+    libre = 0
+    girar = 0
+    global girarIzq
+    distMin = 0.4
+    pub.publish(twist)
+    # do not stop unless user quits with 'q'
+    while (libre == 0):
+        #print "L0: %f L1: %f L2: %f L3: %f L4: %f L5: %f L6: %f L7: %f"%(laser[0],laser[1],laser[2],laser[3],laser[4],laser[5],laser[6],laser[7])
+        if(girar == 0):
+            if(laser[3] <= distMin or laser[4] <= distMin):
+                girar = 1
+                twist.linear.x = 0.0
+                twist.angular.z = 0.0
+            else:
+                if(laser[0] <= distMin or laser[7] <= distMin):
+                    girar = 1
+                    twist.linear.x = 0.0
+                    twist.angular.z = 0.0
+                else:
+                    print "libre"
+                    libre = 1
+        else:
+            print "Obstacle"
+            if(girar == 1 and girarIzq == 2):
+                if((laser[1] + laser[2]) < (laser[5] + laser[6])):
+                    print "Girar izquierda"
+                    twist.angular.z = 0.1
+                    girarIzq = 1
+                else:
+                    print "Girar derecha"
+                    twist.angular.z = -0.1
+                    girarIzq = 0
+            if(girarIzq == 1):
+                print "L3: %f L2: %f L1: %f L0: %f" % (laser[3],laser[2],laser[1],laser[0])
+                if(laser[0] <= 0.5 and laser[1] > 0.5 and laser[2:3] > 0.45):
+                    twist.angular.z = 0.0
+                    girar = 0
+                    girarIzq = 2
+                    libre = 1
+            if (girarIzq == 0):
+                print "L7: %f L6: %f L5: %f L4: %f" % (laser[7],laser[6],laser[5],laser[4])
+                if (laser[7] <= 0.5 and laser[6] > 0.5 and laser[4:5] > 0.45):
+                    twist.angular.z = 0.0
+                    girar = 0
+                    girarIzq = 2
+                    libre = 1
+
+        pub.publish(twist)
+    return 1
+
+def alignTo(x2=0, y2=0):
+    twist.linear.x = 0.0
+    twist.angular.z = 0.0
+    pub.publish(twist)
+
+    x1 = estado.x
+    y1 = estado.y
+    #yaw: variable que contiene el angulo del robot en radianes
+    dyaw = math.degrees(yaw)
+    #round(x,n) donde x es el valor y n es el numero de digitos despues del punto
+    rx1 = round(estado.x,1)
+    ry1 = round(estado.y,1)
+    #Direccion del robot; 1 es hacia arriba y 0 es hacia abajo
+    dir = 1
+
+    if((x2 - rx1) != 0):
+        m = (y2 - ry1) / (x2 - rx1)
+        if ((y2 - ry1) < 0):
+            dir = -1
+    else:
+        m = None
+        if((y2 - ry1) >= 0):
+            alfa = 90
+        else:
+            alfa = -90
+    if(m != None):
+        if(dir == 1):
+            #La funcion copysign devuelve 1 por el signo de m
+            #Si m = -0.0, la funcion devuelve -1
+            #Si m = 0.0, la funcion devuelve 1
+            if(m < 0 or math.copysign(1, m) == -1):
+                alfa = 180 + math.degrees(math.atan(m))
+            else:
+                alfa = math.degrees(math.atan(m))
+        else:
+            if (m < 0 or m == -0):
+                alfa =  math.degrees(math.atan(m))
+            else:
+                alfa = dir * (180 - math.degrees(math.atan(m)))
+
+
+    if(dyaw < 0):
+        dyaw = -1 * normDeg360(360 - math.degrees(yaw))
+
+    if(dir == 1):
+        ang = alfa - dyaw
+    else:
+        ang = alfa + (dir * dyaw)
+    print "Inicial\nRobot x: %f\nRobot y: %f\nRobot yaw: %f\nDireccion: %d" %(x1,y1,dyaw,dir)
+    if(m == None):
+        m = 99999
+    print "M: %f \nAlfa: %f\nAng: %f" % (m, alfa, ang)
+
+    """#Si twist.angular.z es positivo gira a la izquierda, si es negativo gira a la derecha
+    if(ang >= 0):
+        if(ang <= 180):
+            twist.linear.x = 0.0
+            twist.angular.z = 0.1
+        else:
+            twist.linear.x = 0.0
+            twist.angular.z = -0.1
+    else:
+        if(ang >= -180):
+            twist.linear.x = 0.0
+            twist.angular.z = -0.1
+        else:
+            twist.linear.x = 0.0
+            twist.angular.z = 0.1
+
+    pub.publish(twist)
+    band = 1
+    while(band == 1):
+        if(math.degrees(yaw) < 0):
+            dyaw = -1 * normDeg360(360 - math.degrees(yaw))
+        else:
+            dyaw = math.degrees(yaw)
+        #Rango de tolerancia para el angulo del robot
+        if((alfa - 0.25) <= dyaw <= (alfa + 0.25)):
+            band = 0
+        print "alfa: %f\nRobot yaw: %f" % (alfa,dyaw)
+        ##time.sleep(0.3)
+    print "Final\nRobot x: %f\nRobot y: %f\nRobot yaw: %f" % (x1, y1, dyaw)
+    print "M: %f \nAlfa: %f\nAng: %f" % (m, alfa, ang)
+    twist.linear.x = 0.0
+    twist.angular.z = 0.0
+    pub.publish(twist)"""
+
+def distance2Points(p1, p2):
+    return math.sqrt((p2.x - p1.x)**2 + (p2.y - p1.y)**2)
+
+def goTo(x2=0, y2=0, velMax=0.3):
+
+    twist.linear.x = 0.0
+    twist.angular.z = 0.0
+    pub.publish(twist)
+    #x1 = estado.x
+    #y1 = estado.y
+    dyaw = math.degrees(yaw)
+    acel = 0.00001
+    #Tolerancia en metros
+    tol = 0.035
+    tol2 = 0.1
+    #Rotacion
+    rotation = 1
+    #Inicializar el punto de destino con las coordenadas x,y
+    destino = Point(x2, y2)
+
+
+    #Avanzar hacia el punto
+    #twist.linear.x = acel
+    twist.linear.x = 0.1
+    twist.angular.z = 0.0
+    pub.publish(twist)
+
+    d = distance2Points(estado, destino)
+    dAnt = 9999
+    isReached = 0
+    print "Inicial D: %f" % d
+    while(isReached == 0):
+        twist.linear.x = 0.1
+        twist.angular.z = 0.0
+        pub.publish(twist)
+
+        d = distance2Points(estado, destino)
+        #libre = avoidObstacule()
+        """if(twist.linear.x >= velMax):
+            twist.linear.x = velMax
+        
+        #Desacelerar cuando se esta cerca del destino para evitar que se pase
+        if(d <= 0.1):
+            twist.linear.x = 0.1
+        else:
+            twist.linear.x = twist.linear.x + acel
+
+        twist.angular.z = 0.0
+        pub.publish(twist)"""
+            
+        """if((d - 0.00005) <= dAnt):
+            #d = d
+            dAnt = d
+        else:
+            band = 0
+        #print "Final D: %f" % d"""
+
+        if estado.x >= (x2 - tol) and estado.x <= (x2 + tol) and estado.y >= (y2 - tol2) and estado.y <= (y2 + tol2):
+            isReached = 1
+
+        if rotation:
+            alignTo(x2, y2)
+
+        rotation = surroundObstacule(destino)
+
+    print "Final D: %f" % d
+    twist.linear.x = 0.0
+    twist.angular.z = 0.0
+    pub.publish(twist)
+
+listener()
+
+pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
+rospy.init_node('p3dx_mover')
+
+twist = Twist()
+x = input("X coordinate: ")
+y = input("Y coordinate: ")
+alignTo(x,y)
+#goTo(x,y,0.3)
+"""isObstacule()
+twist.linear.x = 0.0
+twist.angular.z = 0.0
+pub.publish(twist)"""
+
+pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
+rospy.init_node('p3dx_mover')
+twist = Twist()
+pub.publish(twist)
+
+exit()

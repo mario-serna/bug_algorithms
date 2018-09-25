@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<launch>
+    <node pkg="bug_algorithms" type="bugServer" name="bugServer" output="screen" />
+    <node pkg="bug_algorithms" type="follow_boundary_advanced" name="follow_boundary_advanced"/>
+    <node pkg="bug_algorithms" type="go_to_point_advanced" name="go_to_point_advanced"/>
+    <node pkg="bug_algorithms" type="go_to_point_intensity" name="go_to_point_intensity"/>
+    <node pkg="bug_algorithms" type="bug0" name="bug0" output="screen"/>
+    <node pkg="bug_algorithms" type="bug1" name="bug1" output="screen"/>
+    <node pkg="bug_algorithms" type="bug2" name="bug2" output="screen"/>
+    <node pkg="bug_algorithms" type="distBug" name="distBug" output="screen"/>
+    <node pkg="bug_algorithms" type="iBug" name="iBug" output="screen"/>
+    <node pkg="bug_algorithms" type="intelligentBug" name="intelligentBug" output="screen"/>
+    <node pkg="bug_algorithms" type="tangentBug" name="tangentBug" output="screen"/>
+</launch>
