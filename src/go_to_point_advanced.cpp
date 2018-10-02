@@ -180,13 +180,13 @@ void fixYaw(geometry_msgs::Point des_position, float precision){
 void goStraightAhead(geometry_msgs::Point des_position){
   float desired_yaw = atan2(des_position.y - position_.y, des_position.x - position_.x);
   float err_yaw = desired_yaw - yaw_;
-  float err_pos = getDistance(position_, des_position);
+  float err_pos = getDistance(position_, desired_position_);
 
   float region = err_yaw > 0 ? regions_["front_left"] : regions_["front_right"];
 
   if(err_pos > dist_precision_){
     twist_msg = geometry_msgs::Twist();
-    if(regions_["front"] < dist_detection+0.2 && region < dist_detection+0.2){
+    if(regions_["front"] < dist_detection+0.2 && regions_["front_right"] < dist_detection+0.2 && regions_["front_left"] < dist_detection+0.2){
       if(regions_["front"] < dist_detection-0.15 || region < dist_detection-0.15)
         twist_msg.linear.x = 0.1;
       else
