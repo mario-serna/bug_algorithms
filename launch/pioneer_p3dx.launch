@@ -1,0 +1,54 @@
+<launch>
+<!--    rosaria-->
+    <arg name="use_robot" default="false" />
+<!--    bug_server-->
+    <arg name="use_bug" default="false" />
+<!--    urg_node arg-->
+    <arg name="laser_frame" default="base_link" />
+<!--    camera arg-->
+    <arg name="use_camera" default="false" />
+    <arg name="video_device" default="/dev/video1" />
+<!--    gmmaping arg-->
+    <arg name="use_gmmaping" default="false" />
+    <arg name="scan_topic"  default="scan" />
+    <arg name="base_frame"  default="base_link"/>
+    <arg name="odom_frame"  default="odom"/>
+
+    <group if="$(arg use_camera)">
+        <node pkg="web_video_server" type="web_video_server" name="web_video_server" output="screen">
+        </node>
+        <node name="usb_cam" pkg="usb_cam" type="usb_cam_node" output="screen" >
+          <param name="video_device" value="$(arg video_device)" />
+          <param name="image_width" value="640" />
+          <param name="image_height" value="480" />
+          <param name="pixel_format" value="yuyv" />
+          <param name="camera_frame_id" value="usb_cam" />
+          <param name="io_method" value="mmap"/>
+        </node>
+        <node name="image_view" pkg="image_view" type="image_view" respawn="false" output="screen">
+          <remap from="image" to="/usb_cam/image_raw"/>
+          <param name="autosize" value="true" />
+        </node>
+    </group>
+
+    <group if="$(arg use_bug)">
+    <include file="$(find bug_algorithms)/launch/bugServer.launch">
+    </include>
+    </group>
+
+    <group if="$(arg use_gmmaping)">
+    <include file="$(find bug_algorithms)/launch/gmmaping.launch">
+
+            <arg name="scan_topic" value="$(arg scan_topic)" />
+            <arg name="base_frame" value="$(arg base_frame)" />
+            <arg name="odom_frame" value="$(arg odom_frame)" />
+    </include>
+    </group>
+    <group if="$(arg use_robot)">
+        <node pkg="rosaria" type="RosAria" name="RosAria" output="screen">
+        </node>
+        <node pkg="urg_node" type="urg_node" name="hokuyo_laser" output="screen">
+            <param name="frame_id" value="$(arg laser_frame)" />
+        </node>
+    </group>
+</launch>
