@@ -239,7 +239,7 @@ void chooseDirection(){
         cout << "Choose direction: Left ( " << regions_["left"] << " | " << regions_["right"] << " )" << endl;
       }
 
-    } else if((regions_["left"]+regions_["front_left"]) < (regions_["right"]+regions_["front_right"])){
+    } else if((regions_["front_left"]) < (regions_["front_right"])){
       isLeft = false;
       cout << "Choose direction: Right ( " << (regions_["left"]+regions_["front_left"]) << " | " << (regions_["right"]+regions_["front_right"]) << " )" << endl;
     } else{
@@ -292,7 +292,7 @@ void followBoundary(){
   if(linear_vel_ > 0.2)
     twist_msg.linear.x = 0.3;
   else
-    twist_msg.linear.x = linear_vel_;
+    twist_msg.linear.x = linear_vel_ < 3 ? 0.2 : linear_vel_ ;
   twist_msg.angular.z = 0.0;
   vel_pub.publish(twist_msg);
 }

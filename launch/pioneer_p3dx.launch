@@ -9,7 +9,7 @@
     <arg name="use_camera" default="false" />
     <arg name="video_device" default="/dev/video1" />
 <!--    gmmaping arg-->
-    <arg name="use_gmmaping" default="false" />
+    <arg name="use_gmapping" default="false" />
     <arg name="scan_topic"  default="scan" />
     <arg name="base_frame"  default="base_link"/>
     <arg name="odom_frame"  default="odom"/>
@@ -36,8 +36,8 @@
     </include>
     </group>
 
-    <group if="$(arg use_gmmaping)">
-    <include file="$(find bug_algorithms)/launch/gmmaping.launch">
+    <group if="$(arg use_gmapping)">
+    <include file="$(find bug_algorithms)/launch/gmapping.launch">
 
             <arg name="scan_topic" value="$(arg scan_topic)" />
             <arg name="base_frame" value="$(arg base_frame)" />

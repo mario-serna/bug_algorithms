@@ -132,6 +132,7 @@ struct discontinuity_point
   float value;
   // 0 = left | 1 = right | 2 = ignore
   int direction;
+  bool is_t_point;
 };
 
 geometry_msgs::Twist twist_msg;
@@ -361,6 +362,7 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
   int count_discontinuity_points = 0;
   vector<discontinuity_point> dis_points = vector<discontinuity_point>();
   bool temp_lock = false;
+  bool is_t_point = false;
 
   desired_yaw = atan2(desired_position_.y - position_.y, desired_position_.x - position_.x);
   err_yaw = normalizeAngle(desired_yaw - yaw_);
@@ -370,6 +372,8 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
   for(int i = 2; i < size-2; i++){
 
     discontinuity_point a,b;
+
+    a.is_t_point = b.is_t_point = false;
 
     temp_size = dis_points.size();
     a.index = i;
@@ -385,9 +389,13 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
 
           // If the discontinuity point is at right then 1 else it is at left then 0
           if(a.value < b.value){
-            a.direction = b.direction = Right;
+            a.direction = Ignore;
+            b.direction = Ignore;
+
           } else{
-            a.direction = b.direction = Left;
+            a.direction = Ignore;
+            b.direction = Ignore;
+
           }
 
           dis_points.push_back(a);
@@ -429,19 +437,19 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
 
   //cout << "Middle region count: " << count_discontinuity_points << endl;
 
-  if(isFreePath(desired_position_, 0) &&
-     (free_distance == 4 ||
-      current_to_goal_distance - free_distance < 0)){
+  if( free_distance == max_laser_range ||current_to_goal_distance - free_distance < 0){
     discontinuity_point t_point;
     t_point.index = laser_align_index;
-    t_point.value = (current_to_goal_distance - free_distance < 0) ? current_to_goal_distance : free_distance;
+    t_point.value = free_distance == max_laser_range ? free_distance : current_to_goal_distance;
     t_point.direction = Ignore;
+    t_point.is_t_point = true;
     dis_points.push_back(t_point);
     count_discontinuity_points++;
   }
 
   if(count_discontinuity_points == 0 && state_ != FollowBoundary){
     discontinuity_point a,b;
+    a.is_t_point = b.is_t_point = false;
     // Check discontinuity for right side
     a.index = 0;
     b.index = 1;
@@ -484,7 +492,7 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
 
       for(int i = 0; i < dis_points.size(); i++){
 
-        if(dis_points[i].value > dist_detection){
+        if(dis_points[i].value > dist_detection || dis_points[i].is_t_point){
 
           float val = mapRangeFloat(dis_points[i].index, 0, size-1, -laser_angle, laser_angle);
           // Discontinuity point pose stimation
@@ -504,7 +512,7 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
           c_distance = 0;
           isSensedNear = false;
           if(isSensedClosestPointInit){
-            c_distance = getDistance(p, sensed_closest_point);
+            c_distance = !dis_points[i].is_t_point ? getDistance(p, sensed_closest_point) : 0;
             if(point_to_goal_distance <= sensed_closest_point.z){
               m_marker.pose.position.x = p.x;
               m_marker.pose.position.y = p.y;
@@ -530,7 +538,7 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
             }
 
           } else{
-            if(isSensedNear && path_distance < best_path_distance){
+            if(path_distance < best_path_distance){
               closest_point_distance = getDistance(p, desired_position_);
               best_path_distance = path_distance;
               best_point_yaw = abs(angle);
@@ -562,7 +570,7 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
 
   if(isInitAlign){
     // Make sure the robot is align
-    if(abs(err_yaw) < PI/30)
+    if(abs(err_yaw) < PI/10)
       isInitAlign = false;
 
   } else{
@@ -1198,7 +1206,12 @@ int main(int argc, char **argv)
     ros::spinOnce();
     rate.sleep();
 
-    count_loop++;
+    ++count_loop;
+
+    if(count_loop == 10 || count_loop == rate_hz){
+      custom_queue.callAvailable();
+      count = 0;
+    }
 
     if(count_loop == rate_hz){
       count_state_time++;
@@ -1206,11 +1219,11 @@ int main(int argc, char **argv)
       count_loop = 0;
       pubMarker = true;
       publishPathMarkers();
-      ++count;
+      /*++count;
       if(count > 0){
         custom_queue.callAvailable();
         count = 0;
-      }
+      }*/
     }
   }
 

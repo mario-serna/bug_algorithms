@@ -157,11 +157,11 @@ void fixYaw(geometry_msgs::Point des_position, float precision){
 
   if(abs(err_yaw) > yaw_precision_ && abs(err_yaw) < yaw_precision_*precision){
     float region = err_yaw > 0 ? regions_["front_left"] : regions_["front_right"];
-    if(regions_["front"] > 0.35 && region > 0.35){
-      if(regions_["front"] < dist_detection+0.2 && region < dist_detection+0.2)
-        twist_msg.linear.x = 0.2;
+    if(regions_["front"] > 0.35 && regions_["front_left"] > 0.35 && regions_["front_right"] > 0.35){
+      if(regions_["front"] > 1 && (regions_["front_left"] > dist_detection) && (regions_["front_left"] > dist_detection))
+        twist_msg.linear.x = linear_vel_ < 0.3 ? 0.2 : linear_vel_ ;
       else
-        twist_msg.linear.x = linear_vel_;
+        twist_msg.linear.x = 0.2;
       twist_msg.angular.z = (err_yaw > 0 ? 0.1 : -0.1);
     } else{
       twist_msg.angular.z = (err_yaw > 0 ? angular_vel_ : -angular_vel_);
@@ -186,13 +186,13 @@ void goStraightAhead(geometry_msgs::Point des_position){
 
   if(err_pos > dist_precision_){
     twist_msg = geometry_msgs::Twist();
-    if(regions_["front"] < dist_detection+0.2 && regions_["front_right"] < dist_detection+0.2 && regions_["front_left"] < dist_detection+0.2){
-      if(regions_["front"] < dist_detection-0.15 || region < dist_detection-0.15)
+    if(regions_["front"] < 1 || regions_["front_right"] < dist_detection || regions_["front_left"] < dist_detection){
+      if(regions_["front"] < dist_detection-0.15 || regions_["front_right"] < dist_detection-0.15 || regions_["front_left"] < dist_detection-0.15)
         twist_msg.linear.x = 0.1;
       else
         twist_msg.linear.x = 0.2;
     } else
-      twist_msg.linear.x = linear_vel_;
+      twist_msg.linear.x = linear_vel_ < 0.3 ? 0.2 : linear_vel_ ;
 
     vel_pub.publish(twist_msg);
   } else{
