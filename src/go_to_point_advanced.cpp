@@ -34,6 +34,7 @@ static geometry_msgs::Point target_position_ = geometry_msgs::Point();
 static float yaw_precision_ = PI/60; // 3 degrees
 static float dist_precision_ = 0.3;
 static float dist_detection = 0.5;
+static float ang_precision = 3;
 
 static bool isLeft = true;
 
@@ -155,7 +156,17 @@ void fixYaw(geometry_msgs::Point des_position, float precision){
 
   twist_msg = geometry_msgs::Twist();
 
-  if(abs(err_yaw) > yaw_precision_ && abs(err_yaw) < yaw_precision_*precision){
+  if(abs(err_yaw) > yaw_precision_*2 && abs(err_yaw) < yaw_precision_*precision){
+    float region = err_yaw > 0 ? regions_["front_left"] : regions_["front_right"];
+    if(regions_["front"] > 0.35 && regions_["front_left"] > 0.35 && regions_["front_right"] > 0.35){
+      if(regions_["front"] > 1 && (regions_["front_left"] > dist_detection) && (regions_["front_left"] > dist_detection))
+        twist_msg.linear.x = linear_vel_ < 0.3 ? 0.2 : linear_vel_ ;
+      else
+        twist_msg.linear.x = 0.2;
+    }
+    twist_msg.angular.z = (err_yaw > 0 ? 0.6 : -0.6);
+    vel_pub.publish(twist_msg);
+  } else if(abs(err_yaw) > yaw_precision_ && abs(err_yaw) < yaw_precision_*2){
     float region = err_yaw > 0 ? regions_["front_left"] : regions_["front_right"];
     if(regions_["front"] > 0.35 && regions_["front_left"] > 0.35 && regions_["front_right"] > 0.35){
       if(regions_["front"] > 1 && (regions_["front_left"] > dist_detection) && (regions_["front_left"] > dist_detection))
@@ -247,6 +258,12 @@ void initNode(ros::NodeHandle& nh){
     laser_topic = "scan";
   }
 
+  if(algorithm == 6){ // TangentBug
+    ang_precision = 15;
+  } else{
+    ang_precision = 3;
+  }
+
   vel_pub = nh.advertise<geometry_msgs::Twist>(vel_topic, rateHz);
   odom_sub = nh.subscribe(odom_topic, rateHz, odomCallback);
   laser_sub = nh.subscribe(laser_topic, rateHz, laserCallback);
@@ -287,7 +304,7 @@ int main(int argc, char **argv)
       pauseBand = true;
 
       if(state_ == FixYaw)
-        fixYaw(target_position_,3);
+        fixYaw(target_position_, ang_precision);
       else if(state_ == GoStraight)
         goStraightAhead(target_position_);
       else if(state_ == Done){

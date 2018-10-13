@@ -37,6 +37,8 @@ enum States {GoToPoint, Circumnavigate, FollowBoundary, Success, Fail};
 static int state_ = GoToPoint;
 static int count_state_time = 0; // Seconds the robot is in a state
 static int count_loop = 0;
+static int count_is_out = 0;
+static int count_is_in = 0;
 
 static float max_laser_range = 4.0;
 static float yaw_ = 0;
@@ -46,6 +48,7 @@ static geometry_msgs::Point initial_position_ = geometry_msgs::Point();
 static geometry_msgs::Point desired_position_ = geometry_msgs::Point();
 static geometry_msgs::Point circ_starting_point = geometry_msgs::Point();
 static geometry_msgs::Point circ_closest_point = geometry_msgs::Point();
+static geometry_msgs::Point virtual_hit_point = geometry_msgs::Point();
 static bool isClosestPointInit = false;
 static int count_closestPoint = 0;
 static float yaw_precision_ = PI/90; // 2 degrees
@@ -54,6 +57,8 @@ static float dist_detection = 0.4;
 static float initial_to_goal_distance = 0.0;
 static float current_to_goal_distance = 0.0;
 static float best_distance = 0.0;
+static float hit_to_goal_distance = 0.0;
+static int full_rotate_time = 0;
 
 static bool isPreviousReady = false;
 static geometry_msgs::Point previous_position_ = geometry_msgs::Point();
@@ -424,12 +429,18 @@ void initBug(ros::NodeHandle& nh){
 
   angular_vel_ = linear_vel_+0.1;
 
+  // Angular velocity = angle/time
+  // time = angle / ang_vel
+  full_rotate_time = int(round((360)/angular_vel_,1))/100;
+
   // Restating the static variables
   circ_starting_point = geometry_msgs::Point();
   circ_closest_point = geometry_msgs::Point();
   isClosestPointInit = false;
   isPoseReady = false;
   isLaserReady = false;
+  count_is_out = 0;
+  count_is_in = 0;
 
   // Path length variables
   isPreviousReady = false;
@@ -513,6 +524,10 @@ void bugConditions(){
 
   if(current_to_goal_distance+0.1 < best_distance){
     best_distance = current_to_goal_distance;
+    if(state_ == Circumnavigate){
+      // Updating the closest point
+      circ_closest_point = position_;
+    }
   }
 
   if(state_ == GoToPoint){
@@ -527,6 +542,10 @@ void bugConditions(){
         (regions_["front_left"] > 0.15 && regions_["front_left"] < dist_detection))){
       // If the value of this variable is false then
       // it's necessary to reset the values for the starting and closest point of circumnavigation
+      // virtual hit point stimation
+      geometry_msgs::Point p = position_;
+      p.x  = p.x + round(dist_detection*cos(yaw_), 2);
+      p.y  = p.y + round(dist_detection*sin(yaw_), 2);
       if(isClosestPointInit){
         // If the closest point is rediscovered twice then the goal is not reachable
         if(count_closestPoint > 1){
@@ -534,7 +553,7 @@ void bugConditions(){
 
         } else{
           // Checking if the robot is at the closest point
-          if(getDistance(position_, circ_closest_point) < 0.3){
+          if(isOnPointRange(position_, circ_closest_point, 0.3)){
             count_closestPoint++;
             cout << "Count for closest point is: " << count_closestPoint << endl;
 
@@ -542,47 +561,65 @@ void bugConditions(){
             // This avoid the case when the robot leaves the closest point for an obstacle
             // but it detects a new one in front of it without moving forward
             if(count_closestPoint < 2){
+              virtual_hit_point = p;
               circ_starting_point = position_;
+              hit_to_goal_distance = current_to_goal_distance;
               circ_closest_point = position_;
+              count_is_out = 0;
               changeState(Circumnavigate);
             }
           } else{
             // Reset the variables
+            virtual_hit_point = p;
             circ_starting_point = position_;
+            hit_to_goal_distance = current_to_goal_distance;
             circ_closest_point = position_;
             count_closestPoint = 0;
+            count_is_out = 0;
             changeState(Circumnavigate);
           }
         }
 
       } else{
         // Reset the variables
+        virtual_hit_point = p;
         circ_starting_point = position_;
+        hit_to_goal_distance = current_to_goal_distance;
         circ_closest_point = position_;
         isClosestPointInit = true;
         count_closestPoint = 0;
+        count_is_out = 0;
         changeState(Circumnavigate);
       }
 
       // Checking if the robot reaches the goal with a presition of 0.3 meters
-    } else if(getDistance(position_, desired_position_) < 0.3){
+    } else if(current_to_goal_distance < 0.3){
       changeState(Success);
     }
   } else if(state_ == Circumnavigate){
-    // Updating the closest point
-    if(getDistance(position_,desired_position_) < getDistance(circ_closest_point, desired_position_))
-      circ_closest_point = position_;
 
     // Waiting for a time, after that check the condition
-    if(count_state_time > 20 && getDistance(position_, circ_starting_point) < 0.3)
-      changeState(FollowBoundary);
+    //if(count_state_time > 20 && getDistance(position_, circ_starting_point) < 0.3)
+    if(!isOnPointRange(position_, circ_starting_point, 0.3)){
+      count_is_out = 1;
+    } else{
+      // virtual hit point stimation
+      geometry_msgs::Point p = position_;
+      p.x  = p.x + round(dist_detection*cos(yaw_-(PI/4)), 2);
+      p.y  = p.y + round(dist_detection*sin(yaw_-(PI/4)), 2);
+      if(count_is_out == 1 && isOnPointRange(p, virtual_hit_point, 0.4)){
+        changeState(FollowBoundary);
+      } else if(count_state_time > full_rotate_time && isOnPointRange(p, virtual_hit_point, 0.4)){
+        changeState(FollowBoundary);
+      }
+    }
 
   } else if(state_ == FollowBoundary){
     if(getDistance(position_, circ_closest_point) < 0.3)
       changeState(GoToPoint);
   }
 
-  if(getDistance(position_, desired_position_) < 0.3){
+  if(current_to_goal_distance < 0.3){
     changeState(Success);
     return;
   }

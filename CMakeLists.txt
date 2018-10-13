@@ -178,8 +178,14 @@ target_link_libraries(intelligentBug ${catkin_LIBRARIES})
 add_executable(tangentBug src/tangentBug.cpp)
 target_link_libraries(tangentBug ${catkin_LIBRARIES})
 
+#add_executable(tangentBug_imp src/tangentBug_imp.cpp)
+#target_link_libraries(tangentBug_imp ${catkin_LIBRARIES})
+
 add_executable(go_to_point src/go_to_point.cpp)
 target_link_libraries(go_to_point ${catkin_LIBRARIES})
+
+#add_executable(navigate_to_point src/navigate_to_point.cpp)
+#target_link_libraries(navigate_to_point ${catkin_LIBRARIES})
 
 add_executable(go_to_point_advanced src/go_to_point_advanced.cpp)
 target_link_libraries(go_to_point_advanced ${catkin_LIBRARIES})

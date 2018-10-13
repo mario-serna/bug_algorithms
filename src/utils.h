@@ -174,6 +174,16 @@ bool isOnPendant(geometry_msgs::Point initial, geometry_msgs::Point goal, geomet
   return abs(m1 - m2) <= 0.05;
 }
 
+bool isOnPointRange(geometry_msgs::Point robot, geometry_msgs::Point point,float tolerance){
+  if((abs(robot.x - point.x) < tolerance) &&
+     (abs(robot.y - point.y) < tolerance)){
+    //ROS_INFO("Robot is in the hit point range!");
+    return true;
+  }
+  //ROS_INFO("Robot is out of range from the hit point!");
+  return false;
+}
+
 // Function that checks whether the value is not a number or it has a value of infinite
 // To avoid problems with the laser value presition
 float processRay(float value, float maxRange){

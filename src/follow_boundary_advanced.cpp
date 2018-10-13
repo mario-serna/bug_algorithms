@@ -2,6 +2,9 @@
 #include <iostream>
 #include "std_msgs/String.h"
 #include "std_msgs/Bool.h"
+#include "std_msgs/Empty.h"
+#include "std_srvs/Empty.h"
+#include "std_srvs/SetBool.h"
 #include "tf/tf.h"
 #include "geometry_msgs/Twist.h"
 #include "nav_msgs/Odometry.h"
@@ -24,7 +27,7 @@ static float linear_vel_, angular_vel_;
 enum NodeStates {Waiting, Initializing, Executing, Pause, Stopping};
 static int node_state_ = Waiting;
 
-enum States {FindBoundary, TurnLeft, FollowBoundary, TurnLeftOnly};
+enum States {FindBoundary, FindBoundaryByHand, TurnLeft, FollowBoundary, TurnLeftOnly};
 static int state_ = TurnLeftOnly;
 static int count_state_time = 0; // Seconds the robot is in a state
 static int count_loop = 0;
@@ -42,6 +45,7 @@ static bool isReverseActive = false;
 static bool isCloseEnough = false;
 static bool reverseCriterion;
 static bool chooseCriterion = true;
+static bool changeHandCriterion = false;
 
 static map<string, float> regions_ = {
   {"right",0},
@@ -77,6 +81,15 @@ ros::Subscriber odom_sub;
 bool followBoundarySwitch(bug_algorithms::bugSwitchRequest& request, bug_algorithms::bugSwitchResponse& response){
   node_state_ = request.state;
   cout << "Follow node state: " << node_state_ << " | " << node_state_desc[node_state_] << endl;
+
+  return true;
+}
+
+bool changeHand(std_srvs::SetBoolRequest& request, std_srvs::SetBoolResponse& response){
+  isLeft = request.data;
+  changeHandCriterion = true;
+  string msg = isLeft ? "Left" : "Right";
+  cout << "The Robot hand now is: " << msg << endl;
 
   return true;
 }
@@ -178,8 +191,13 @@ void takeActionSimple(){
           changeState(TurnLeftOnly);
         }
       } else if(r3 > dist_detection){
-        changeState(FindBoundary);
+        if(changeHandCriterion){
+          changeState(FindBoundaryByHand);
+        } else{
+          changeState(FindBoundary);
+        }
       } else if(r3 > 0.3 && r3 < dist_detection+0.05){
+        changeHandCriterion = false;
         changeState(FollowBoundary);
       } else{
         changeState(TurnLeftOnly);
@@ -263,6 +281,22 @@ void findBoundary(){
     twist_msg.linear.x = linear_vel_*0.5;
     twist_msg.angular.z = -(angular_vel_+(linear_vel_*0.5));
   }
+
+  twist_msg.angular.z = (isLeft ? twist_msg.angular.z : -twist_msg.angular.z);
+  vel_pub.publish(twist_msg);
+}
+
+void findBoundaryByHand(){
+  twist_msg = geometry_msgs::Twist();
+
+  if(angular_vel_ > 0.2){
+    twist_msg.linear.x = 0.1;
+  }
+  else{
+    twist_msg.linear.x = linear_vel_*0.5;
+  }
+
+  twist_msg.angular.z = -0.3;
 
   twist_msg.angular.z = (isLeft ? twist_msg.angular.z : -twist_msg.angular.z);
   vel_pub.publish(twist_msg);
@@ -373,6 +407,7 @@ int main(int argc, char **argv)
   ros::NodeHandle nh;
 
   ros::ServiceServer service = nh.advertiseService("followBoundaryAdvancedSwitch", followBoundarySwitch);
+  ros::ServiceServer serviceHand = nh.advertiseService("changeHand", changeHand);
   bool pauseBand = true;
 
   ros::Rate rate(rate_hz);
@@ -388,6 +423,8 @@ int main(int argc, char **argv)
       pauseBand = true;
       if(state_ == FindBoundary)
         findBoundary();
+      else if(state_ == FindBoundaryByHand)
+        findBoundaryByHand();
       else if(state_ == TurnLeft)
         turnLeft();
       else if(state_ == TurnLeftOnly)

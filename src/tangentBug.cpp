@@ -2,6 +2,7 @@
 #include <iostream>
 #include "std_msgs/String.h"
 #include "std_msgs/Bool.h"
+#include "std_msgs/Empty.h"
 #include "tf/tf.h"
 #include "geometry_msgs/Twist.h"
 #include "nav_msgs/Odometry.h"
@@ -11,6 +12,7 @@
 #include "vector"
 #include "algorithm"
 #include "std_srvs/SetBool.h"
+#include "std_srvs/Empty.h"
 #include "utils.h"
 #include "bug_algorithms/bugSwitch.h"
 #include "bug_algorithms/nodeState.h"
@@ -41,6 +43,7 @@ static int count_loop = 0;
 static int count_tolerance = 0; // Seconds the robot must wait
 static int laser_align_index;
 static int laser_samples = 727;
+static int angle_increment;
 
 static float laser_angle = PI/1.5; // +-120 degrees
 static float max_laser_range = 4.0;
@@ -87,6 +90,11 @@ static bool isPreviousReady = false;
 static geometry_msgs::Point previous_position_ = geometry_msgs::Point();
 static float path_length = 0.0;
 
+// 0: None, 1: Left, 2: Right
+static int hand_tracking = 0;
+static float left_hand_angle;
+static float right_hand_angle;
+
 // Marker variables
 static bool pubMarker = false;
 static bool isPathMarkerReady = false;
@@ -107,6 +115,11 @@ static map<string, float> regions_ = {
   {"front_right",0},
   {"front",0},
   {"front_left",0},
+  {"left",0}
+};
+
+static map<string, float> hand = {
+  {"right",0},
   {"left",0}
 };
 
@@ -148,6 +161,7 @@ ros::Subscriber laser_detect_discont_sub;
 ros::Subscriber lost_obstacle_sub;
 ros::ServiceClient srv_client_go_to_point;
 ros::ServiceClient srv_client_follow_boundary;
+ros::ServiceClient srv_client_change_hand;
 
 ros::CallbackQueue custom_queue;
 
@@ -223,6 +237,15 @@ void publishPathMarkers(){
     target_marker.pose.position.y = target.y;
     target_marker.pose.position.z = 0.8;
     marker_pub.publish(target_marker);
+    geometry_msgs::Point p;
+    if(m_point.z < sensed_closest_point.z){
+      p = m_point;
+    } else{
+      p = sensed_closest_point;
+    }
+    m_marker.pose.position.x = p.x;
+    m_marker.pose.position.y = p.y;
+    m_marker.pose.position.z = 0.8;
     marker_pub.publish(m_marker);
     marker_pub.publish(disPoint_marker);
     marker_pub.publish(path_marker);
@@ -299,6 +322,8 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& msg){
 }
 
 void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg){
+  laser_samples = msg->ranges.size();
+  angle_increment = msg->angle_increment;
   // Check the utils.h file for the functions processRay and myfn
   regions_["right"] = *min_element(begin(msg->ranges), begin(msg->ranges)+200, myfn);
   regions_["right"] = processRay(regions_["right"], max_laser_range);
@@ -311,9 +336,24 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg){
   regions_["left"] = *min_element(begin(msg->ranges)+530, end(msg->ranges), myfn);
   regions_["left"] = processRay(regions_["left"], max_laser_range);
 
-  laser_samples = msg->ranges.size();
+  // (0° - 18°) 121 - 55 = 66 || (0° + 18°) 121 + 55 = 176
+  auto i = min_element(begin(msg->ranges)+66, begin(msg->ranges)+176, myfn);
+  hand["right"] = *i;
+  hand["right"] = processRay(hand["right"], max_laser_range);
+  right_hand_angle = i - begin(msg->ranges);
+
+  i = min_element(end(msg->ranges)-176, end(msg->ranges)-66, myfn);
+  hand["left"] = *i;
+  hand["left"] = processRay(hand["left"], max_laser_range);
+  left_hand_angle = i - begin(msg->ranges);
+
+  right_hand_angle = (right_hand_angle-laser_samples/2)*angle_increment;
+  left_hand_angle = (left_hand_angle-laser_samples/2)*angle_increment;
 
   isLaserReady = true;
+
+  //cout << "Hand right: " << hand["right"] << " | left: " << hand["left"] << endl;
+  //cout << "Hand right: " << right_hand_angle << " | left: " << left_hand_angle << endl;
 
   //ROS_INFO("IMP\nRight: %f \nFront_right: %f \nFront: %f \nFront_left: %f \nLeft: %f",
   //         regions_["right"], regions_["front_right"], regions_["front"], regions_["front_left"], regions_["left"]);
@@ -362,7 +402,6 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
   int count_discontinuity_points = 0;
   vector<discontinuity_point> dis_points = vector<discontinuity_point>();
   bool temp_lock = false;
-  bool is_t_point = false;
 
   desired_yaw = atan2(desired_position_.y - position_.y, desired_position_.x - position_.x);
   err_yaw = normalizeAngle(desired_yaw - yaw_);
@@ -437,17 +476,23 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
 
   //cout << "Middle region count: " << count_discontinuity_points << endl;
 
-  if( free_distance == max_laser_range ||current_to_goal_distance - free_distance < 0){
+  if( free_distance == max_laser_range || current_to_goal_distance - free_distance < 0){
     discontinuity_point t_point;
     t_point.index = laser_align_index;
-    t_point.value = free_distance == max_laser_range ? free_distance : current_to_goal_distance;
+
+    if(current_to_goal_distance - free_distance < 0){
+      t_point.value = current_to_goal_distance;
+    } else{
+      t_point.value = free_distance;
+    }
+
     t_point.direction = Ignore;
     t_point.is_t_point = true;
     dis_points.push_back(t_point);
     count_discontinuity_points++;
   }
 
-  if(count_discontinuity_points == 0 && state_ != FollowBoundary){
+  if(count_discontinuity_points == 0 && (abs(err_yaw) < PI/36) && state_ != FollowBoundary){
     discontinuity_point a,b;
     a.is_t_point = b.is_t_point = false;
     // Check discontinuity for right side
@@ -458,7 +503,7 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
 
     if(a.value > 0.6 && a.value < 4 && b.value > 0.6 && b.value < 4){
       if(abs(a.value - b.value) < 0.2){
-        a.direction = Left;
+        a.direction = Ignore;
         dis_points.push_back(a);
       }
     }
@@ -471,7 +516,7 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
 
     if(a.value > 0.6 && a.value < 4 && b.value > 0.6 && b.value < 4){
       if(abs(a.value - b.value) < 0.2){
-        a.direction = Right;
+        a.direction = Ignore;
         dis_points.push_back(a);
       }
     }
@@ -486,23 +531,31 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
   if(!lockedPoint){
 
     // Compute and select best discontinuity point
-    if(dis_points.size() > 0){
+    if(dis_points.size() > dist_detection && !isInitAlign){
       float c_distance;
-      bool isSensedNear = false;
 
       for(int i = 0; i < dis_points.size(); i++){
 
         if(dis_points[i].value > dist_detection || dis_points[i].is_t_point){
 
           float val = mapRangeFloat(dis_points[i].index, 0, size-1, -laser_angle, laser_angle);
+          //float val = (dis_points[i].index - laser_samples/2)*angle_increment;
           // Discontinuity point pose stimation
           float angle = yaw_ + val;
-          float temp_angle = dis_points[i].direction == 1 ? 90 : ((dis_points[i].direction == 0) ? -90 : 0);
+          float temp_angle = 0;
+          float temp_dist = 0;
+          if(dis_points[i].direction == Right){
+            temp_angle = (PI/2);
+            temp_dist = 0.5;
+          } else if(dis_points[i].direction == Left) {
+            temp_angle = -(PI/2);
+            temp_dist = 0.5;
+          }
           p.x  = laser_position_.x + (dis_points[i].value*cos(angle));
           p.y  = laser_position_.y + (dis_points[i].value*sin(angle));
 
-          cap.x = p.x + (0.5*cos(angle + temp_angle));
-          cap.y = p.y + (0.5*sin(angle + temp_angle));
+          cap.x = p.x + (temp_dist*cos(angle + temp_angle));
+          cap.y = p.y + (temp_dist*sin(angle + temp_angle));
 
           disPoint_marker.points.push_back(p);
 
@@ -510,17 +563,13 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
           point_to_goal_distance = getDistance(p, desired_position_);
 
           c_distance = 0;
-          isSensedNear = false;
+
           if(isSensedClosestPointInit){
             c_distance = !dis_points[i].is_t_point ? getDistance(p, sensed_closest_point) : 0;
             if(point_to_goal_distance <= sensed_closest_point.z){
-              m_marker.pose.position.x = p.x;
-              m_marker.pose.position.y = p.y;
-              m_marker.pose.position.z = 0.8;
               sensed_closest_point.x = p.x;
               sensed_closest_point.y = p.y;
               sensed_closest_point.z = point_to_goal_distance;
-              isSensedNear = true;
             }
           }
           // Total distance = current position to point + point position to goal + point to closest point distance
@@ -528,34 +577,39 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
 
           if(temp_lock){
 
-            if(path_distance < best_path_distance && abs(angle) < best_point_yaw){
+            if(abs(val) < best_point_yaw){
               closest_point_distance = getDistance(p, desired_position_);
               best_path_distance = path_distance;
-              best_point_yaw = abs(angle);
+              best_point_yaw = abs(val);
               n = dis_points[i].index;
-              target = cap;
+              target = p;
               target.z = point_to_goal_distance;
+              //cout << "Temp lock dis point" << endl;
             }
 
           } else{
-            if(path_distance < best_path_distance){
+            if(path_distance < best_path_distance && point_to_goal_distance < current_to_goal_distance){
               closest_point_distance = getDistance(p, desired_position_);
               best_path_distance = path_distance;
               best_point_yaw = abs(angle);
               n = dis_points[i].index;
               target = cap;
               target.z = point_to_goal_distance;
-            }
+              //cout << "Go to DisPoint" << endl;
+            } /*else{
+              target = sensed_closest_point;
+              //cout << "Go to Sensed point" << endl;
+            }*/
           }
         }
       }
 
       if(!isSensedClosestPointInit){
-        sensed_closest_point = target;
+        sensed_closest_point = m_point;
         isSensedClosestPointInit = true;
       }
 
-      if(temp_lock && (best_path_distance < 999) && (closest_point_distance > current_to_goal_distance) && (abs(err_yaw) < PI/6)){
+      if(temp_lock && (best_path_distance < 999)){ //&& (closest_point_distance > current_to_goal_distance) && (abs(err_yaw) < PI/6)){
         cout << "Point Locked!!" << endl;
         cout << "X: " << target.x << " | Y: " << target.y << endl;
         cout << "Best point distance: " << best_path_distance << endl;
@@ -570,7 +624,7 @@ void laserDetectDiscontinuityCallback(const sensor_msgs::LaserScan::ConstPtr& ms
 
   if(isInitAlign){
     // Make sure the robot is align
-    if(abs(err_yaw) < PI/10)
+    if(abs(err_yaw) < PI/6)
       isInitAlign = false;
 
   } else{
@@ -655,16 +709,6 @@ void lostObstacleCallback(const std_msgs::Bool::ConstPtr& msg){
   }
 }
 
-bool isOnPointRange(geometry_msgs::Point robot, geometry_msgs::Point point,float tolerance){
-  if((abs(robot.x - point.x) < tolerance) &&
-     (abs(robot.y - point.y) < tolerance)){
-    //ROS_INFO("Robot is in the hit point range!");
-    return true;
-  }
-  //ROS_INFO("Robot is out of range from the hit point!");
-  return false;
-}
-
 void initMarkers(){
   string frame_id = "odom" ;
 
@@ -745,15 +789,16 @@ void initMarkers(){
   color.g = 0.0;
   color.b = 1.0;
   path_marker_go_to = createMarker(frame_id, node_name, 6, visualization_msgs::Marker::POINTS, visualization_msgs::Marker::ADD, p, scale, color);
+  marker_pub.publish(path_marker_go_to);
   color.r = 1.0;
   color.g = 0.0;
   color.b = 0.0;
   path_marker_follow = createMarker(frame_id, node_name, 7, visualization_msgs::Marker::POINTS, visualization_msgs::Marker::ADD, p, scale, color);
-
+  marker_pub.publish(path_marker_follow);
 
   p.x = 0;
   p.y = 0;
-  p.z = 0.1;
+  p.z = 0.9;
   scale.x = 0.2;
   scale.y = 0.2;
   scale.z = 0.2;
@@ -781,7 +826,6 @@ void initBug(ros::NodeHandle& nh){
 
   // Restating the static variables
   leave_point = geometry_msgs::Point();
-  m_point = geometry_msgs::Point();
   target = geometry_msgs::Point();
   target.x = desired_position_.x;
   target.y = desired_position_.y;
@@ -835,9 +879,12 @@ void initBug(ros::NodeHandle& nh){
   ros::service::waitForService("goToPointAdvancedSwitch");
   ROS_INFO("Waiting for followBoundaryAdvancedSwitch service");
   ros::service::waitForService("followBoundaryAdvancedSwitch");
+  ROS_INFO("Waiting for change hand service");
+  ros::service::waitForService("changeHand");
 
   srv_client_go_to_point = nh.serviceClient<bug_algorithms::bugSwitch>("goToPointAdvancedSwitch", true);
   srv_client_follow_boundary = nh.serviceClient<bug_algorithms::bugSwitch>("followBoundaryAdvancedSwitch", true);
+  srv_client_change_hand = nh.serviceClient<std_srvs::SetBool>("changeHand", true);
 
   waitPose();
   waitLaser();
@@ -845,6 +892,8 @@ void initBug(ros::NodeHandle& nh){
   initial_position_ = position_;
   closest_point = position_;
   sensed_closest_point = geometry_msgs::Point();
+  m_point = position_;
+  m_point.z = 0;
 
   initial_to_goal_distance = getDistance(initial_position_, desired_position_);
   current_to_goal_distance = initial_to_goal_distance;
@@ -901,17 +950,17 @@ int isFreePath(geometry_msgs::Point desired, float tol){
     // Check if there is a free path
     if((abs(err_yaw) < (PI/36)) && regions_["front_left"] > dist_detection+tol
        && regions_["front"] > dist_detection+(tol-0.05) && regions_["front_right"] > dist_detection+tol){
-      //ROS_INFO("Less than 5 deg");
+      //cout << "Less than 5 deg" << endl;
       return 1;
 
     } else if(err_yaw > 0 && (abs(err_yaw) > (PI/36)) && (abs(err_yaw) < (PI/2))
-              && regions_["left"] > dist_detection+0.2 && regions_["front_left"] > dist_detection+tol){
-      //ROS_INFO("Between 10 and 90 - to the left");
+              && regions_["left"] > dist_detection+0.1 && regions_["front_left"] > dist_detection+tol){
+      //cout << "Between 10 and 90 - to the left" << endl;
       return 1;
 
     } else if(err_yaw < 0 && (abs(err_yaw) > (PI/36)) && (abs(err_yaw) < (PI/2))
-              && regions_["right"] > dist_detection+0.2 && regions_["front_right"] > dist_detection+tol){
-      //ROS_INFO("Between 10 and 90 - to the right");
+              && regions_["right"] > dist_detection+0.1 && regions_["front_right"] > dist_detection+tol){
+      //cout << "Between 10 and 90 - to the right" << endl;
       return 1;
 
     } else if((abs(err_yaw) > (PI/2)) && (abs(err_yaw) < (PI/1.5))){
@@ -933,6 +982,25 @@ int isFreePath(geometry_msgs::Point desired, float tol){
   return 0;
 }
 
+void chooseDirection(){
+  if((regions_["left"] < 1 || regions_["right"] < 1)){
+    if(regions_["left"] < regions_["right"]){
+      hand_tracking = 1; // Robot is using its left hand
+      cout << "Choose direction: Right ( " << regions_["left"] << " | " << regions_["right"] << " )" << endl;
+    } else{
+      hand_tracking = 2; // Robot is using its right hand
+      cout << "Choose direction: Left ( " << regions_["left"] << " | " << regions_["right"] << " )" << endl;
+    }
+
+  } else if((regions_["front_left"]) < (regions_["front_right"])){
+    hand_tracking = 1; // Robot is using its left hand
+    cout << "Choose direction: Right ( " << (regions_["left"]+regions_["front_left"]) << " | " << (regions_["right"]+regions_["front_right"]) << " )" << endl;
+  } else{
+    hand_tracking = 2; // Robot is using its right hand
+    cout << "Choose direction: Left ( " << (regions_["left"]+regions_["front_left"]) << " | " << (regions_["right"]+regions_["front_right"]) << " )" << endl;
+  }
+}
+
 void bugConditions(){
 
   bool isCurrentClose = false;
@@ -942,26 +1010,23 @@ void bugConditions(){
   // Updating tangent bug distance
   if(free_distance > 0){
     float val = mapRangeFloat(laser_align_index, 0, laser_samples-1, -laser_angle, laser_angle);
+    //float val = (laser_align_index - laser_samples/2)*angle_increment;
     // Pose stimation
-    p.x  = laser_position_.x + (free_distance*cos(yaw_ + val));
-    p.y  = laser_position_.y + (free_distance*sin(yaw_ + val));
+    float temp_free_dist = current_to_goal_distance - free_distance < 0 ? current_to_goal_distance : free_distance;
+    p.x  = laser_position_.x + (temp_free_dist*cos(yaw_ + val));
+    p.y  = laser_position_.y + (temp_free_dist*sin(yaw_ + val));
     reach_distance = getDistance(p, desired_position_);
 
     if(reach_distance+0.2 < followed_distance){
       // if the free distance is less than 0 then set 0 to followed_distance
-      if((current_to_goal_distance - free_distance) <= 0){
-        cout << "Reach: " << reach_distance << " | Followed: " << followed_distance <<  endl;
-        m_point = desired_position_;
-        followed_distance = 0;
-        isReachDistanceClose = true;
-
-      } else{
-        cout << "Reach: " << reach_distance << " | Followed: " << followed_distance <<  endl;
-        m_point = p;
-        followed_distance = reach_distance;
-        isReachDistanceClose = true;
-
-      }
+      cout << "Reach: " << reach_distance << " | Followed: " << followed_distance <<  endl;
+      m_point = p;
+      m_point.z = reach_distance;
+      m_marker.pose.position.x = p.x;
+      m_marker.pose.position.y = p.y;
+      m_marker.pose.position.z = 0.8;
+      followed_distance = reach_distance;
+      isReachDistanceClose = true;
     }
   } else {
     // If any laser ray is pointing to goal then change the current checkCondition to 0,
@@ -989,10 +1054,13 @@ void bugConditions(){
   }
 
   if(state_ == GoToPoint || state_ == GoToPointFollowing){
-    if(state_ == GoToPoint && isFreePath(target, 0) == 0 && abs(t_err_yaw) < PI/30){
-      if(count_state_time > 2){
-        changeState(GoToPointFollowing);
-        return;
+    if(state_ == GoToPoint){
+      if(isFreePath(target, 0) == 0 && abs(t_err_yaw) < PI/30){
+        if(count_state_time > 2){
+          chooseDirection();
+          changeState(GoToPointFollowing);
+          return;
+        }
       }
     }
 
@@ -1000,8 +1068,48 @@ void bugConditions(){
 
       if(count_state_time > 1){
         if(!leaveCondition){
-          if(free_distance > 0.5 && (target.z < current_to_goal_distance) && (abs(err_yaw) < PI/2)){
-            cout << "Leave condition 2: " << free_distance << endl;
+
+          if(!lockedPoint && regions_["front"] > dist_detection+0.2 && hand["right"] < 1 && hand["left"] < 1 &&
+             ((laser_align_index > 66 && laser_align_index < 176) ||
+              (laser_align_index > laser_samples-176 && laser_align_index < laser_samples-66))){
+            int opt_hand;
+            // virtual hands points stimation
+            geometry_msgs::Point p_right, p_left = laser_position_;
+            p_right.x  = laser_position_.x + round(hand["right"]*cos(yaw_ + right_hand_angle), 2);
+            p_right.y  = laser_position_.y + round(hand["right"]*sin(yaw_ + right_hand_angle), 2);
+            p_left.x  = laser_position_.x + round(hand["left"]*cos(yaw_ + left_hand_angle), 2);
+            p_left.y  = laser_position_.y + round(hand["left"]*sin(yaw_ + left_hand_angle), 2);
+
+            if(err_yaw > 0){
+              cout << "Using left hand" << endl;
+              opt_hand = 1;
+            } else{
+              cout << "Using right hand" << endl;
+              opt_hand = 2;
+            }
+
+            /*if(getDistance(p_left, desired_position_) < getDistance(p_right, desired_position_)){
+              cout << "Using left hand" << endl;
+              opt_hand = 1;
+            } else{
+              cout << "Using right hand" << endl;
+              opt_hand = 2;
+            }*/
+
+            if(hand_tracking == 0 || hand_tracking != opt_hand){
+              hand_tracking = opt_hand;
+              cout << "Using: " << hand_tracking << endl;
+              std_srvs::SetBool r = std_srvs::SetBool();
+              // if hand_tracking is 1 this means that robot is using its left and therefore following direction is right
+              // on the oder hand, robot is using its right hand and following direction is left
+              r.request.data = hand_tracking == 1 ? true : false;
+              srv_client_change_hand.call(r);
+            }
+          }
+
+
+          if(free_distance > 0.5 && (sensed_closest_point.z < current_to_goal_distance) ){//&& (abs(err_yaw) < PI/2)
+            //cout << "Leave condition 2: " << free_distance << endl;
             leaveCondition = true;
             count_tolerance = 0;
             return;
@@ -1015,20 +1123,31 @@ void bugConditions(){
 
         } else{
           leaveCondition = false;
-          if(isFreePath(target, 0.1) == 1){
-            cout << "The problem is here" << endl;
+          if(isFreePath(target, 0.3) == 1){
+            //cout << "The problem is here" << endl;
             changeState(GoToPoint);
             return;
           } else{
-            cout << "No free path" << endl;
+            //cout << "No free path" << endl;
           }
         }
+
+        if(lockedPoint){
+          if(isFreePath(target, 0) == 1){
+            //cout << "The problem is here" << endl;
+            changeState(GoToPoint);
+            return;
+          } else{
+            //cout << "No free path" << endl;
+          }
+        }
+
       }
     }
 
     if(regions_["front_left"] < dist_detection  || regions_["front_right"] < dist_detection
        || regions_["left"] < dist_detection+0.1 || regions_["right"] < dist_detection+0.1){
-      if(lockedPoint && isOnPointRange(position_, target, 0.4)){
+      if(lockedPoint && isOnPointRange(position_, target, 0.5)){
         cout << "Condition 1" << endl;
         lockedPoint = false;
         leaveCondition = false;
@@ -1046,7 +1165,7 @@ void bugConditions(){
           leaveCondition = false;
           changeState(FollowBoundary);
           return;
-        } else{
+        } else if(!lockedPoint){
           cout << "Condition 2" << endl;
           lockedPoint = false;
           leaveCondition = false;
@@ -1056,7 +1175,7 @@ void bugConditions(){
       }
     }
 
-    if(state_ == GoToPointFollowing && lockedPoint && !isOnPointRange(position_, target, 0.4)){
+    /*if(state_ == GoToPointFollowing && lockedPoint && !isOnPointRange(position_, target, 0.4)){
       if(abs(err_yaw) < PI/2){
         cout << "Here is the problem lock point" << endl;
         changeState(GoToPoint);
@@ -1065,7 +1184,7 @@ void bugConditions(){
         changeState(FollowBoundary);
         return;
       }
-    }
+    }*/
 
     if(getDistance(position_, desired_position_) < 0.3){
       changeState(Success);

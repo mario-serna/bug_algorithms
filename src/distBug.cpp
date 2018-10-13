@@ -375,16 +375,6 @@ bool isOnPendant(geometry_msgs::Point start, float start_to_goal_distance){
   return abs((initial_to_current_distance+current_to_goal_distance)-start_to_goal_distance) < 0.03;
 }
 
-bool isOnPointRange(geometry_msgs::Point robot, geometry_msgs::Point point,float tolerance){
-  if((abs(robot.x - point.x) < tolerance) &&
-     (abs(robot.y - point.y) < tolerance)){
-    //ROS_INFO("Robot is in the hit point range!");
-    return true;
-  }
-  //ROS_INFO("Robot is out of range from the hit point!");
-  return false;
-}
-
 void initMarkers(){
   string frame_id = "odom" ;
 
