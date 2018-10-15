@@ -183,8 +183,8 @@ void takeActionSimple(){
       }
     } else{
       if((r1 < dist_detection) ||
-         (regions_["front"] <= dist_detection) ||
-         (r2 < dist_detection-0.1)){
+         (regions_["front"] < dist_detection) ||
+         (r2 < dist_detection-0.15)){
         if((regions_["front"] > dist_detection+0.1) && (r3 > 0.3)){
           changeState(TurnLeft);
         } else{
@@ -273,7 +273,7 @@ void chooseDirection(){
 void findBoundary(){
   twist_msg = geometry_msgs::Twist();
 
-  if(angular_vel_ > 0.2){
+  if(angular_vel_ > 0.3){
     twist_msg.linear.x = 0.1;
     twist_msg.angular.z = -0.6;
   }
@@ -289,7 +289,7 @@ void findBoundary(){
 void findBoundaryByHand(){
   twist_msg = geometry_msgs::Twist();
 
-  if(angular_vel_ > 0.2){
+  if(angular_vel_ > 0.3){
     twist_msg.linear.x = 0.1;
   }
   else{
@@ -305,7 +305,7 @@ void findBoundaryByHand(){
 void turnLeft(){
   twist_msg = geometry_msgs::Twist();
   twist_msg.linear.x = 0.1;
-  if(angular_vel_ > 0.2)
+  if(angular_vel_ > 0.3)
     twist_msg.angular.z = 0.3;
   else
     twist_msg.angular.z = angular_vel_;
@@ -323,7 +323,7 @@ void turnLeftOnly(){
 
 void followBoundary(){
   twist_msg = geometry_msgs::Twist();
-  if(linear_vel_ > 0.2)
+  if(linear_vel_ > 0.3)
     twist_msg.linear.x = 0.3;
   else
     twist_msg.linear.x = linear_vel_ < 3 ? 0.2 : linear_vel_ ;

@@ -372,7 +372,7 @@ bool isOnPendant(geometry_msgs::Point start, float start_to_goal_distance){
 
   //ROS_INFO("SumIPG: %f | DistIG: %f", initial_to_current_distance+current_to_goal_distance, initial_to_goal_distance);
 
-  return abs((initial_to_current_distance+current_to_goal_distance)-start_to_goal_distance) < 0.03;
+  return abs((initial_to_current_distance+current_to_goal_distance)-start_to_goal_distance) < 0.5;
 }
 
 void initMarkers(){
@@ -395,7 +395,7 @@ void initMarkers(){
   start_text_marker.pose.position.z = 0.5;
   marker_pub.publish(start_text_marker);
   goal_text_marker = createMarker(frame_id, node_name, 2, visualization_msgs::Marker::TEXT_VIEW_FACING, visualization_msgs::Marker::ADD, desired_position_, scale, color);
-  goal_text_marker.text = "G(" + to_string_with_precision(desired_position_.x, 1) + " , " + to_string_with_precision(desired_position_.y, 1) + ")";
+  goal_text_marker.text = "G(" + to_string_with_precision(desired_position_.x, 2) + " , " + to_string_with_precision(desired_position_.y, 2) + ")";
   goal_text_marker.pose.position.y = goal_text_marker.pose.position.y+0.5;
   goal_text_marker.pose.position.z = 0.5;
   marker_pub.publish(goal_text_marker);
@@ -635,7 +635,7 @@ void bugConditions(){
 
     float hit_to_goal_distance = getDistance(hit_point, desired_position_);
 
-    if(count_state_time > 10){
+    if(count_state_time > 25){
 
       if(getDistance(position_, hit_point) < 0.3){
         // The robot completed a loop around the obstacle
@@ -658,20 +658,20 @@ void bugConditions(){
     if(!leaveCondition){
       if(!isLeavePointInit){
         // DistBug
-        if(current_to_goal_distance+0.3 < hit_to_goal_distance){
+        if(current_to_goal_distance+0.1 < hit_to_goal_distance){
           checkCondition = true;
         }
       } else{
         float leave_to_goal_distance = getDistance(leave_point, desired_position_);
-        if(current_to_goal_distance+0.5 < leave_to_goal_distance){
+        if(current_to_goal_distance+0.1 < leave_to_goal_distance){
           checkCondition = true;
         }
       }
 
       if(checkCondition){
-        if(current_to_goal_distance+0.3 < hit_to_goal_distance){
+        if(current_to_goal_distance+0.1 < hit_to_goal_distance){
 
-          if(!isOnPointRange(position_, hit_point, 0.3)){
+          if(!isOnPointRange(position_, hit_point, 0.2)){
 
             if(isOnPendant(hit_point, hit_to_goal_distance) && isFreePath(desired_position_, 0) == 1){
               //cout << "Is on pendant!" << endl;
@@ -687,8 +687,6 @@ void bugConditions(){
             cout << "Free: " << free_distance << endl;
             leaveCondition = true;
             count_tolerance = 0;
-            leave_point = position_;
-            isLeavePointInit = true;
           }
         } else if((current_to_goal_distance - free_distance) <= 0){
           // The target is visible d(X,T) - F <= 0
@@ -697,8 +695,6 @@ void bugConditions(){
           cout << "Free: " << free_distance << endl;
           leaveCondition = true;
           count_tolerance = 0;
-          leave_point = position_;
-          isLeavePointInit = true;
         }
         checkCondition = false;
       }
@@ -706,6 +702,8 @@ void bugConditions(){
     } else{
       leaveCondition = false;
       if(isFreePath(desired_position_,0.3) == 1){
+        leave_point = position_;
+        isLeavePointInit = true;
         changeState(GoToPoint);
       }
     }

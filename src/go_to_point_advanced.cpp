@@ -164,7 +164,7 @@ void fixYaw(geometry_msgs::Point des_position, float precision){
       else
         twist_msg.linear.x = 0.2;
     }
-    twist_msg.angular.z = (err_yaw > 0 ? 0.6 : -0.6);
+    twist_msg.angular.z = (err_yaw > 0 ? 0.4 : -0.4);
     vel_pub.publish(twist_msg);
   } else if(abs(err_yaw) > yaw_precision_ && abs(err_yaw) < yaw_precision_*2){
     float region = err_yaw > 0 ? regions_["front_left"] : regions_["front_right"];

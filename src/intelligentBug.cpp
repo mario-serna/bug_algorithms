@@ -373,7 +373,7 @@ bool isOnPendant(geometry_msgs::Point start, float start_to_goal_distance){
 
   //ROS_INFO("SumIPG: %f | DistIG: %f", initial_to_current_distance+current_to_goal_distance, initial_to_goal_distance);
 
-  return abs((initial_to_current_distance+current_to_goal_distance)-start_to_goal_distance) < 0.03;
+  return abs((initial_to_current_distance+current_to_goal_distance)-start_to_goal_distance) < 0.05;
 }
 
 void initMarkers(){

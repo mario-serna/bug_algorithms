@@ -375,7 +375,7 @@ void initMarkers(){
   start_text_marker.pose.position.z = 0.5;
   marker_pub.publish(start_text_marker);
   goal_text_marker = createMarker(frame_id, node_name, 2, visualization_msgs::Marker::TEXT_VIEW_FACING, visualization_msgs::Marker::ADD, desired_position_, scale, color);
-  goal_text_marker.text = "G(" + to_string_with_precision(desired_position_.x, 1) + " , " + to_string_with_precision(desired_position_.y, 1) + ")";
+  goal_text_marker.text = "G(" + to_string_with_precision(desired_position_.x, 2) + " , " + to_string_with_precision(desired_position_.y, 2) + ")";
   goal_text_marker.pose.position.y = goal_text_marker.pose.position.y+0.5;
   goal_text_marker.pose.position.z = 0.5;
   marker_pub.publish(goal_text_marker);
@@ -597,7 +597,7 @@ void bugConditions(){
         cout << "Is not on pendant!" << endl;
       }*/
     } else{
-      if(count_state_time > 9 && getDistance(position_, hit_point) < 0.3){
+      if(count_state_time > 15 && getDistance(position_, hit_point) < 0.3){
         count_same_point++;
         if(reverseCriterion && count_same_point == 3){
           cout << "Count for hit point is: " << count_same_point << endl;
